@@ -1,4 +1,6 @@
-﻿open System
+﻿module InterpolationAlgos
+
+open System
 open System.IO
 
 type Point = { X: float; Y: float }
@@ -17,21 +19,24 @@ let linearInterpolate (p0: Point) (p1: Point) (x: float) : float =
     let t = (x - p0.X) / (p1.X - p0.X)
     p0.Y + t * (p1.Y - p0.Y)
 
-let newtonInterpolate (points: Point list) (x: float) : float =
+let computeDividedDifferences (points: Point list) : float[,] =
     let n = points.Length
     let dd = 
         points
         |> List.mapi (fun i p -> (i, p.Y))
         |> List.fold (fun acc (i, y) -> Array2D.set acc i 0 y; acc) (Array2D.zeroCreate<float> n n)
-    let dd = 
-        [1 .. n - 1]
-        |> List.fold (fun acc j ->
-            [0 .. n - j - 1]
-            |> List.fold (fun acc i ->
-                Array2D.set acc i j ((Array2D.get acc (i+1) (j-1) - Array2D.get acc i (j-1)) / (points.[i+j].X - points.[i].X))
-                acc
-            ) acc
-        ) dd
+    [1 .. n - 1]
+    |> List.fold (fun acc j ->
+        [0 .. n - j - 1]
+        |> List.fold (fun acc i ->
+            Array2D.set acc i j ((Array2D.get acc (i+1) (j-1) - Array2D.get acc i (j-1)) / (points.[i+j].X - points.[i].X))
+            acc
+        ) acc
+    ) dd
+
+let newtonInterpolate (points: Point list) (x: float) : float =
+    let dd = computeDividedDifferences points
+    let n = points.Length
     let result = 
         [1 .. n - 1]
         |> List.fold (fun (res, prod) j ->
@@ -195,6 +200,39 @@ let parseArgs (args: string[]) : Options =
     let defaultOpts = { useLinear = false; useNewton = false; useLagrange = false; step = 1.0; newtonWindowSize = 4; lagrangeWindowSize = 4 }
     aux 0 defaultOpts
 
+let processLine (opts: Options) (line: string) (linearState: LinearState) (newtonState: NewtonState) (lagrangeState: LagrangeState) (lastPoint: Point option) =
+    match String.IsNullOrWhiteSpace line with
+    | true -> (linearState, newtonState, lagrangeState, lastPoint)
+    | false ->
+        match parseLine line with
+        | Some(point) ->
+            let linearState = if opts.useLinear then processLinear opts.step point linearState else linearState
+            let newtonState = if opts.useNewton then processNewton opts.step point newtonState else newtonState
+            let lagrangeState = if opts.useLagrange then processLagrange opts.step point lagrangeState else lagrangeState
+            (linearState, newtonState, lagrangeState, Some point)
+        | None ->
+            eprintfn "Input format error: %s" line
+            (linearState, newtonState, lagrangeState, lastPoint)
+
+let processLines (opts: Options) =
+    let linearState = createLinearState ()
+    let newtonState = createNewtonState opts.newtonWindowSize
+    let lagrangeState = createLagrangeState opts.lagrangeWindowSize
+    let rec loop linearState newtonState lagrangeState lastPoint =
+        match Console.In.Peek() with
+        | -1 ->
+            match lastPoint with
+            | Some(p) ->
+                if opts.useLinear then flushLinear opts.step linearState p
+                if opts.useNewton then flushNewton opts.step newtonState
+                if opts.useLagrange then flushLagrange opts.step lagrangeState
+            | None -> ()
+        | _ ->
+            let line = Console.In.ReadLine()
+            let (linearState, newtonState, lagrangeState, lastPoint) = processLine opts line linearState newtonState lagrangeState lastPoint
+            loop linearState newtonState lagrangeState lastPoint
+    loop linearState newtonState lagrangeState None
+
 [<EntryPoint>]
 let main argv =
     let opts = parseArgs argv
@@ -203,31 +241,5 @@ let main argv =
         eprintfn "! Method is not chosen --linear (-l for ), --newton (-n for interpolation point count), --lagrange, (--step for interpolation step)"
         1
     | _ ->
-        let linearState = createLinearState ()
-        let newtonState = createNewtonState opts.newtonWindowSize
-        let lagrangeState = createLagrangeState opts.lagrangeWindowSize
-        let rec processLines linearState newtonState lagrangeState lastPoint =
-            match Console.In.Peek() with
-            | -1 ->
-                match lastPoint with
-                | Some(p) ->
-                    if opts.useLinear then flushLinear opts.step linearState p
-                    if opts.useNewton then flushNewton opts.step newtonState
-                    if opts.useLagrange then flushLagrange opts.step lagrangeState
-                | None -> ()
-            | _ ->
-                let line = Console.In.ReadLine()
-                match String.IsNullOrWhiteSpace line with
-                | true -> processLines linearState newtonState lagrangeState lastPoint
-                | false ->
-                    match parseLine line with
-                    | Some(point) ->
-                        let linearState = if opts.useLinear then processLinear opts.step point linearState else linearState
-                        let newtonState = if opts.useNewton then processNewton opts.step point newtonState else newtonState
-                        let lagrangeState = if opts.useLagrange then processLagrange opts.step point lagrangeState else lagrangeState
-                        processLines linearState newtonState lagrangeState (Some point)
-                    | None ->
-                        eprintfn "Input format error: %s" line
-                        processLines linearState newtonState lagrangeState lastPoint
-        processLines linearState newtonState lagrangeState None
+        processLines opts
         0
