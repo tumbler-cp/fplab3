@@ -4,88 +4,66 @@
 
 ### Описание обработки входного потока
 1. **Чтение строки**:
-   ```fsharp
-   match inputStream.ReadLine() with
-   | null | "EOF" -> 
-   ```
-   Если строка пустая или EOF, завершаем обработку.
+    ```fsharp
+    match String.IsNullOrWhiteSpace line with
+    | true -> (linearState, newtonState, lagrangeState, lastPoint)
+    | false ->
+         match parseLine line with
+         | Some(point) -> ...
+    ```
+    Если строка пустая, завершаем обработку.
 
-2. **Обновление окна данных**:
-   ```fsharp
-   match points.Length with
-   | len when len >= windowSize -> (List.tail points) @ [(x, y)]
-   | _ -> points @ [(x, y)]
-   ```
-   Если точек больше `windowSize`, удаляем первую точку.
+2. **Обновление состояния**:
+    ```fsharp
+    let linearState = if opts.useLinear then processLinear opts.step point linearState else linearState
+    let newtonState = if opts.useNewton then processNewton opts.step point newtonState else newtonState
+    let lagrangeState = if opts.useLagrange then processLagrange opts.step point lagrangeState else lagrangeState
+    ```
+    Обновляем состояния для каждого метода интерполяции.
 
-3. **Вычисление интерполяции**:
-   ```fsharp
-   match points.Length with
-   | len when len < windowSize -> generateInterpolatedPoints interpolationMethod step points 
-   | _ -> 
-       let xStart, _ = List.head points
-       let xEnd, _ = List.last points
-       let xCenter = (xStart + xEnd) / 2.0
-       [ (xCenter, interpolationMethod points xCenter) ]
-   ```
-   Интерполируем, если точек меньше `windowSize`, иначе вычисляем центральную точку.
+3. **Фильтрация и вывод новых значений**:
+    ```fsharp
+    match state.NextX with
+    | Some(x) when x <= lastPoint.X -> ...
+    | _ -> ()
+    ```
+    Фильтруем уже напечатанные значения и выводим новые.
 
-4. **Фильтрация и вывод новых значений**:
-   ```fsharp
-   match lastPrintedX with
-   | None -> computed
-   | Some lastX -> computed |> List.filter (fun (xi, _) -> xi > lastX)
-   ```
-   Фильтруем уже напечатанные значения и выводим новые.
-
-5. **Рекурсивный вызов**:
-   ```fsharp
-   loop (Some (List.last newValues |> fst)) newPoints
-   ```
-   Рекурсивно вызываем `loop`, обновляя `lastPrintedX`, если были новые значения.
+4. **Рекурсивный вызов**:
+    ```fsharp
+    loop linearState newtonState lagrangeState lastPoint
+    ```
+    Рекурсивно вызываем `loop`, обновляя состояния.
 
 ### Линейная интерполяция
 ```fsharp
-let linearInterpolation (x0, y0) (x1, y1) x =
-    y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+let linearInterpolate (p0: Point) (p1: Point) (x: float) : float =
+     let t = (x - p0.X) / (p1.X - p0.X)
+     p0.Y + t * (p1.Y - p0.Y)
 ```
 
-### Метод ньютона
+### Метод Ньютона
 ```fsharp
-let newtonInterpolation points x =
-    let n = List.length points
-    let dividedDifferences: float list list =
-        List.init n (fun i -> List.init n (fun _ -> 0.0))
-        |> List.mapi (fun i row -> List.mapi (fun j _ -> if j = 0 then snd (List.item i points) else 0.0) row)
-    
-    let dividedDifferences =
-        List.fold (fun (acc: float list list) j ->
-            List.mapi (fun i row ->
-                if i + j < n then
-                    let xi, _ = List.item i points
-                    let xj, _ = List.item (i + j) points
-                    let value = (List.item (i + 1) acc).[j - 1] - (List.item i acc).[j - 1]
-                    let newValue = value / (xj - xi)
-                    List.mapi (fun k v -> if k = j then newValue else v) row
-                else row) acc) dividedDifferences [1 .. n - 1]
-    
-    let rec evaluate term acc i =
-        if i = n then acc
-        else
-            let xi, _ = List.item i points
-            let term = term * (x - xi)
-            evaluate term (acc + term * (List.head dividedDifferences).[i]) (i + 1)
-    
-    evaluate 1.0 (List.head dividedDifferences).[0] 1
+let newtonInterpolate (points: Point list) (x: float) : float =
+     let dd = computeDividedDifferences points
+     let n = points.Length
+     let result = 
+          [1 .. n - 1]
+          |> List.fold (fun (res, prod) j ->
+                let prod = prod * (x - points.[j-1].X)
+                res + Array2D.get dd 0 j * prod, prod
+          ) (Array2D.get dd 0 0, 1.0)
+     fst result
 ```
 
-### Метод лагранжа
+### Метод Лагранжа
 ```fsharp
-let lagrangeInterpolation points x =
-    let lagrangeBasis j x =
-        List.fold (fun acc (xi, _) ->
-            if xi = fst (List.item j points) then acc
-            else acc * (x - xi) / (fst (List.item j points) - xi)) 1.0 points
-    List.mapi (fun j (xj, yj) -> yj * lagrangeBasis j x) points
-    |> List.sum
+let lagrangeInterpolate (points: Point list) (x: float) : float =
+     points
+     |> List.fold (fun acc p ->
+          let l = points
+                     |> List.filter (fun q -> q <> p)
+                     |> List.fold (fun acc q -> acc * (x - q.X) / (p.X - q.X)) 1.0
+          acc + l * p.Y
+     ) 0.0
 ```

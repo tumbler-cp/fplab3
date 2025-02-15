@@ -4,8 +4,7 @@ open NUnit.Framework
 open InterpolationAlgos
 
 [<SetUp>]
-let Setup () =
-    ()
+let Setup () = ()
 
 [<Test>]
 let ``Test Linear Interpolation`` () =
@@ -18,7 +17,7 @@ let ``Test Linear Interpolation`` () =
 
 [<Test>]
 let ``Test Newton Interpolation`` () =
-    let points = [{ X = 1.0; Y = 1.0 }; { X = 2.0; Y = 4.0 }; { X = 3.0; Y = 9.0 }]
+    let points = [ { X = 1.0; Y = 1.0 }; { X = 2.0; Y = 4.0 }; { X = 3.0; Y = 9.0 } ]
     let x = 2.5
     let expected = 6.25
     let result = newtonInterpolate points x
@@ -26,7 +25,7 @@ let ``Test Newton Interpolation`` () =
 
 [<Test>]
 let ``Test Lagrange Interpolation`` () =
-    let points = [{ X = 1.0; Y = 1.0 }; { X = 2.0; Y = 4.0 }; { X = 3.0; Y = 9.0 }]
+    let points = [ { X = 1.0; Y = 1.0 }; { X = 2.0; Y = 4.0 }; { X = 3.0; Y = 9.0 } ]
     let x = 2.5
     let expected = 6.25
     let result = lagrangeInterpolate points x
